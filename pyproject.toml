@@ -1,11 +1,11 @@
 [project]
 
-name = "exampleproject"
+name = "geometrical_kite_optimization"
 # Define the name of your project here. This is mandatory. Once you publish your package for the first time,
 # this name will be locked and associated with your project. It affects how users will
 # install your package via pip, like so:
 
-# $ pip install exampleproject
+# $ pip install geometrical_kite_optimization
 
 # Your project will be accessible at: https://pypi.org/project/exampleproject/
 
@@ -75,21 +75,13 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
 ]
 
-# Dependencies needed by your project. These packages will be installed by pip when
-# your project is installed. Ensure these are existing, valid packages.
-
-# For more on how this field compares to pip's requirements files, see:
-# https://packaging.python.org/discussions/install-requires-vs-requirements/
 dependencies = [
   "numpy", 
   "pandas>=1.5.3", 
-  "matplotlib>=3.7.1"
+  "matplotlib>=3.7.1",
+  "SurfplanAdapter @ git+https://github.com/jellepoland/SurfplanAdapter",
+  "VSM @ git+https://github.com/ocayon/Vortex-Step-Method.git@develop",
 ]
-
-# You can define additional groups of dependencies here (e.g., development dependencies).
-# These can be installed using the "extras" feature of pip, like so:
-
-#   $ pip install exampleproject[dev]
 
 # These are often referred to as "extras" and provide optional functionality.
 [project.optional-dependencies]
@@ -98,17 +90,3 @@ dev = [
   "pytest-cov",
   "black",
   ]
-
-[project.urls]
-"Homepage" = "https://github.com/awegroup"
-"Source" = "<enter_your_repository_URL>"
-
-# To grab all the files from the src folders of installed packages, not only the .py files
-[tool.setuptools.packages.find]
-where = ["src"]
-
-# List of relevant URLs for your project. These are displayed on the left sidebar of your PyPI page.
-# This can include links to the homepage, source code, changelog, funding, etc.
-
-
-# This [project] example was adopted from https://github.com/pypa/sampleproject/blob/main/pyproject.toml
