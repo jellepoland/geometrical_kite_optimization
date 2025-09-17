@@ -648,17 +648,19 @@ class KiteScaling():
             rib = {}
             rib["LE"] = LE_coord
             rib["TE"] = full_arc_TE[i]
-            rib["VUP"] = self.config["wing_sections"]["data"][i][self.header_map["VUP_x"]:self.header_map["VUP_z"]+1]
-            rib["airfoil_id"] = self.config["wing_sections"]["data"][i][self.header_map["airfoil_id"]]
+            rib["VUP"] = self.old_kite.config["wing_sections"]["data"][i][self.old_kite.header_map["VUP_x"]:self.old_kite.header_map["VUP_z"]+1]
+            rib["airfoil_id"] = self.old_kite.config["wing_sections"]["data"][i][self.old_kite.header_map["airfoil_id"]]
             new_wing_sections.append(rib)
         
         return generate_wing_yaml.generate_wing_sections_data(new_wing_sections)
     
     
-    def export_data(self, filename="kite_data.txt"):
+    def export_data(self, filename=None):
         """Export kite data to a text file."""
-        new_yaml_file_path = Path(PROJECT_DIR) / "processed_data" / f"{self.kite_name}_scaled"
-        old_file = self.config
+        if not filename:
+            filename = self.kite_name
+        new_yaml_file_path = Path(PROJECT_DIR) / "processed_data" / f"{filename}_scaled"
+        old_file = self.old_kite.config
 
         wing_sections = self.get_new_wing_sections()
         wing_airfoils = old_file["wing_airfoils"]
@@ -847,10 +849,13 @@ class KiteScaling():
         
         return yaml_file_path, yaml_data
     
-    def vsm_csv_sheets(self):
+
+    def vsm_csv_sheets(self, filename=None):
         """Generate VSM data sheets for the kite."""
-        _, yaml_data = self.export_data()
-        new_csv_file_path = Path(PROJECT_DIR) / "processed_data" / f"{self.kite_name}_scaled"
+        if not filename:
+            filename = self.kite_name
+        _, yaml_data = self.export_data(filename=filename)
+        new_csv_file_path = Path(PROJECT_DIR) / "processed_data" / f"{filename}_scaled"
         bridle_csv_path = Path(new_csv_file_path) / "bridle_lines.csv"
         wing_csv_path = Path(new_csv_file_path) / "wing_geometry.csv"
 
@@ -906,7 +911,7 @@ class KiteScaling():
 
 
 def plot_kite(kite_lst):
-    """Plot the kite geometry in 3d."""-
+    """Plot the kite geometry in 3d."""
     ax = plt.axes(projection='3d')
     for kite in kite_lst:
         _, _, _, _, full_arc_LE, full_arc_TE, full_arc_qchord = kite.chord_vectors()
@@ -928,36 +933,40 @@ def plot_kite(kite_lst):
 
 if __name__ == "__main__":
     
+    plot=False
     print("V9.60")
     kite_name = "strawman55"
     base_kite = KiteDefinition(kite_name)
-    base_kite.process(plot=False)
-    print(f'Old span: {base_kite.get_old_span()[0]}')
-    print(f'Old Area: {base_kite.get_old_area()}')
-    print(f'Old AR: {base_kite.old_aspect_ratio()}')
+    base_kite.process(plot=plot)
+    print(f'Old span: {round(base_kite.get_old_span()[0], 3)} [m]')
+    print(f'Old Area: {round(base_kite.get_old_area(), 3)} [m^2]')
+    print(f'Old AR: {round(base_kite.old_aspect_ratio(), 3)} [-]')
     LE_base, TE_base = base_kite.get_arc()
     bez_x, bez_y, points, LE_arc_proj_y, LE_arc_proj_z, phi, delta_best, gamma_best = base_kite.get_bezier_curve()
-    base_kite.plot_arc([LE_base[:,1], LE_base[:,2], bez_x, bez_y, points[:,0], points[:,1], LE_base[:,1], LE_base[:,2]],
-                         ["Old LE", "Bezier Arc", "Control Points", ""],
-                         ["k-", "r-", "rx", "kx"],
-                         "Base kite LE plot",
-                         grid=True)
+    if plot:
+        base_kite.plot_arc([LE_base[:,1], LE_base[:,2], bez_x, bez_y, points[:,0], points[:,1], LE_base[:,1], LE_base[:,2]],
+                            ["Old LE", "Bezier Arc", "Control Points", ""],
+                            ["k-", "r-", "rx", "kx"],
+                            "Base kite LE plot",
+                            grid=True)
     _, _, _, LE_full_y, LE_full_z, _, _, _ = base_kite.get_bezier_curve(normalized=False, plot=False)
     _, _, points, LE_y, LE_z, phi, delta, gamma = base_kite.get_bezier_curve(normalized=True, plot=False)
-    print(f'delta: {delta}')
-    print(f'gamma: {gamma}')
-    print(f'phi:   {phi}')
+    print(f'delta: {round(delta, 6)}')
+    print(f'gamma: {round(gamma, 6)}')
+    print(f'phi:   {round(phi, 6)}')
 
-    scaled_kite = KiteScaling(base_kite, new_ar=6.5,  arc_parameters=[delta, gamma, phi])
+    scaled_kite = KiteScaling(base_kite, new_ar=5.5,  arc_parameters=[delta, gamma, phi])
     LE_norm_y, LE_norm_z, bez_y, bez_z, points = scaled_kite.get_le_arc_curve()
     LE_y_scaled, LE_z_scaled_trans = scaled_kite.scale_arc_to_span()
-    scaled_kite.plot_arc([LE_full_y, LE_full_z, LE_y_scaled, LE_z_scaled_trans],
-                         ["Old LE", "Scaled Kite"],
-                         ["kx", "rx"],
-                         "Scaled LE plot",
-                         grid=True)
+    if plot:
+        scaled_kite.plot_arc([LE_full_y, LE_full_z, LE_full_y, LE_full_z, LE_y_scaled, LE_z_scaled_trans, LE_y_scaled, LE_z_scaled_trans],
+                             ["", "Old LE", "", "Scaled Kite"],
+                             ["kx", "k-", "rx", "r-"],
+                             "Scaled LE plot",
+                             grid=True)
     new_chord_vectors, new_qchord_points, new_LE_coords, new_TE_coords, full_arc_LE, full_arc_TE, full_arc_qchord = scaled_kite.chord_vectors(plot=False)
-    plot_kite([base_kite, scaled_kite])
+    if plot:
+        plot_kite([base_kite, scaled_kite])
 
-    scaled_kite.export_data()
-    scaled_kite.vsm_csv_sheets()
+    output_filename = "test"
+    scaled_kite.vsm_csv_sheets(filename=output_filename)
