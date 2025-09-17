@@ -81,6 +81,7 @@ dependencies = [
   "matplotlib>=3.7.1",
   "SurfplanAdapter @ git+https://github.com/jellepoland/SurfplanAdapter",
   "VSM @ git+https://github.com/ocayon/Vortex-Step-Method.git@develop",
+  "QSM @ git+https://github.com/ocayon/quasi-steady-awes.git@develop-3dof",
 ]
 
 # These are often referred to as "extras" and provide optional functionality.
