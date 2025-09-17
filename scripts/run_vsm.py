@@ -11,7 +11,7 @@ import numpy as np
 PROJECT_DIR = Path(__file__).parent.parent
 
 
-def main(kite_name="TUDELFT_V3_KITE"):
+def main(kite_name="strawman55"):
     """
     Example: 3D Aerodynamic Analysis of TUDELFT_V3_KITE using VSM
 
@@ -161,7 +161,8 @@ def main(kite_name="TUDELFT_V3_KITE"):
         data_type=".pdf",
         save_path=save_folder,
         is_save=True,
-        is_show=True,
+        is_show=False,
+        is_save_data=True, # Save the raw data as CSV files
     )
     print("  ✓ Alpha sweep completed")
 
@@ -191,7 +192,8 @@ def main(kite_name="TUDELFT_V3_KITE"):
         data_type=".pdf",
         save_path=save_folder,
         is_save=True,
-        is_show=True,
+        is_show=False,
+        is_save_data=True, # Save the raw data as CSV files
     )
     print("  ✓ Beta sweep completed")
 
@@ -236,4 +238,4 @@ def main(kite_name="TUDELFT_V3_KITE"):
 
 
 if __name__ == "__main__":
-    main()
+    main(kite_name="test65_scaled")
