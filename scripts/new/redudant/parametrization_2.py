@@ -1,6 +1,7 @@
 from pathlib import Path
 
 # from geometrical_kite_optimization.utils import PROJECT_DIR
+PROJECT_DIR = Path(__file__).parent.parent  # Points to the project root
 import os
 import yaml
 import numpy as np
@@ -27,8 +28,14 @@ class KiteDefinition:
 
     def get_old_kite(self):
         """Retrieve the old kite geometry."""
-        self.source_dir = Path(PROJECT_DIR) / "data" / f"{self.kite_name}"
+        # Try processed_data first, then fall back to data directory
+        self.source_dir = Path(PROJECT_DIR) / "processed_data" / f"{self.kite_name}"
         self.old_kite_path = Path(self.source_dir) / "config_kite.yaml"
+
+        if not self.old_kite_path.exists():
+            # Fall back to data directory
+            self.source_dir = Path(PROJECT_DIR) / "data" / f"{self.kite_name}"
+            self.old_kite_path = Path(self.source_dir) / "config_kite.yaml"
 
         if not self.old_kite_path.exists():
             raise FileNotFoundError(
@@ -743,11 +750,12 @@ class KiteScaling:
             rib = {}
             rib["LE"] = LE_coord
             rib["TE"] = full_arc_TE[i]
-            rib["VUP"] = self.config["wing_sections"]["data"][i][
-                self.header_map["VUP_x"] : self.header_map["VUP_z"] + 1
+            rib["VUP"] = self.old_kite.config["wing_sections"]["data"][i][
+                self.old_kite.header_map["VUP_x"] : self.old_kite.header_map["VUP_z"]
+                + 1
             ]
-            rib["airfoil_id"] = self.config["wing_sections"]["data"][i][
-                self.header_map["airfoil_id"]
+            rib["airfoil_id"] = self.old_kite.config["wing_sections"]["data"][i][
+                self.old_kite.header_map["airfoil_id"]
             ]
             new_wing_sections.append(rib)
 
@@ -758,7 +766,7 @@ class KiteScaling:
         new_yaml_file_path = (
             Path(PROJECT_DIR) / "processed_data" / f"{self.kite_name}_scaled"
         )
-        old_file = self.config
+        old_file = self.old_kite.config
 
         wing_sections = self.get_new_wing_sections()
         wing_airfoils = old_file["wing_airfoils"]
@@ -946,7 +954,7 @@ class KiteScaling:
         print(f'Wing sections: {len(wing_sections["data"])}')
         print(f'Wing airfoils: {len(wing_airfoils["data"])}')
         try:
-            print(f"Bridle lines: {len(bridle_lines)}")
+            print(f"Bridle lines: {len(bridle_lines_yaml['data'])}")
         except:
             pass
 
@@ -1023,6 +1031,209 @@ class KiteScaling:
         return bridle_data, wing_data
 
 
+class AnhedralScaling:
+    """Class to handle anhedral angle scaling while keeping AR and surface area constant."""
+
+    def __init__(self, kitedefinition: KiteDefinition, new_anhedral_angle_deg):
+        """
+        Initialize anhedral scaling.
+
+        Args:
+            kitedefinition: Base kite definition
+            new_anhedral_angle_deg: New anhedral angle in degrees (positive = up, negative = down)
+        """
+        if not isinstance(kitedefinition, KiteDefinition):
+            raise TypeError(
+                "The kitedefinition input must be an instance of KiteDefinition"
+            )
+
+        self.kite_name = kitedefinition.kite_name + "_anhedral"
+        self.old_kite = kitedefinition
+        self.new_anhedral_angle = np.radians(new_anhedral_angle_deg)
+
+        # Preserve original properties
+        self.area = self.old_kite.get_old_area()
+        self.aspect_ratio = self.old_kite.old_aspect_ratio()
+
+        # Calculate current anhedral angle from the kite geometry
+        self.current_anhedral_angle = self._calculate_current_anhedral()
+        self.anhedral_change = self.new_anhedral_angle - self.current_anhedral_angle
+
+    def _calculate_current_anhedral(self):
+        """Calculate the current anhedral angle from wing tip to root."""
+        LE_coords, _ = self.old_kite.get_arc(halve=True)
+
+        # Get root and tip positions (assuming symmetric kite)
+        root_pos = LE_coords[0]  # Center position
+        tip_pos = LE_coords[-1]  # Wing tip position
+
+        # Calculate anhedral angle (angle between span and horizontal)
+        span_vector = tip_pos - root_pos
+        horizontal_span = abs(span_vector[1])  # Y-direction distance
+        vertical_span = span_vector[2]  # Z-direction distance
+
+        if horizontal_span > 0:
+            return np.arctan2(vertical_span, horizontal_span)
+        else:
+            return 0.0
+
+    def apply_anhedral_transform(self):
+        """Apply anhedral transformation to all wing sections while preserving AR and area."""
+        LE_coords, TE_coords = self.old_kite.get_arc(halve=True)
+
+        new_LE_coords = []
+        new_TE_coords = []
+
+        # Calculate the required span to maintain AR and area
+        target_span = np.sqrt(self.aspect_ratio * self.area)
+
+        for i, (le_coord, te_coord) in enumerate(zip(LE_coords, TE_coords)):
+            # Calculate normalized spanwise position (0 at root, 1 at tip)
+            if len(LE_coords) > 1:
+                span_fraction = i / (len(LE_coords) - 1)
+            else:
+                span_fraction = 0
+
+            # Calculate new Y and Z coordinates based on anhedral angle
+            # Maintain the same spanwise distribution but with new anhedral
+            y_pos = span_fraction * target_span / 2  # Half span
+            z_pos = y_pos * np.tan(self.new_anhedral_angle)
+
+            # Preserve X-coordinate and chord orientation
+            new_le = np.array([le_coord[0], y_pos, z_pos])
+            new_te = np.array([te_coord[0], y_pos, z_pos])
+
+            # Adjust TE to maintain chord vector direction (approximately)
+            original_chord = te_coord - le_coord
+            new_te = new_le + original_chord
+
+            new_LE_coords.append(new_le)
+            new_TE_coords.append(new_te)
+
+        # Create full wing by mirroring
+        full_arc_LE = np.vstack(
+            [new_LE_coords[:-1], np.flip(new_LE_coords[:-1], 0) * np.array([1, -1, 1])]
+        )
+        full_arc_TE = np.vstack(
+            [new_TE_coords[:-1], np.flip(new_TE_coords[:-1], 0) * np.array([1, -1, 1])]
+        )
+
+        return full_arc_LE, full_arc_TE
+
+    def get_new_wing_sections(self):
+        """Generate new wing sections with modified anhedral angle."""
+        full_arc_LE, full_arc_TE = self.apply_anhedral_transform()
+        new_wing_sections = []
+
+        for i, (le_coord, te_coord) in enumerate(zip(full_arc_LE, full_arc_TE)):
+            rib = {}
+            rib["LE"] = le_coord
+            rib["TE"] = te_coord
+
+            # Keep original VUP vectors (could be modified for more sophisticated transformation)
+            rib["VUP"] = self.old_kite.config["wing_sections"]["data"][i][
+                self.old_kite.header_map["VUP_x"] : self.old_kite.header_map["VUP_z"]
+                + 1
+            ]
+            rib["airfoil_id"] = self.old_kite.config["wing_sections"]["data"][i][
+                self.old_kite.header_map["airfoil_id"]
+            ]
+            new_wing_sections.append(rib)
+
+        return generate_wing_yaml.generate_wing_sections_data(new_wing_sections)
+
+    def chord_vectors(self, plot=False):
+        """Calculate chord vectors for the anhedral-modified kite."""
+        full_arc_LE, full_arc_TE = self.apply_anhedral_transform()
+
+        # Calculate quarter chord points
+        full_arc_qchord = []
+        new_chord_vectors = []
+
+        for le_coord, te_coord in zip(full_arc_LE, full_arc_TE):
+            chord_vector = te_coord - le_coord
+            qchord = le_coord + 0.25 * chord_vector
+            full_arc_qchord.append(qchord)
+            new_chord_vectors.append(chord_vector)
+
+        full_arc_qchord = np.array(full_arc_qchord)
+
+        if plot:
+            plt.figure(figsize=(10, 8))
+            plt.plot(
+                full_arc_LE[:, 1], full_arc_LE[:, 2], "g-", label="LE", linewidth=2
+            )
+            plt.plot(
+                full_arc_TE[:, 1], full_arc_TE[:, 2], "r-", label="TE", linewidth=2
+            )
+            plt.scatter(
+                full_arc_qchord[:, 1],
+                full_arc_qchord[:, 2],
+                c="blue",
+                label="Quarter Chord",
+                s=30,
+            )
+
+            plt.axis("equal")
+            plt.xlabel("Y-axis (Span)")
+            plt.ylabel("Z-axis (Height)")
+            plt.title(
+                f"Kite with Anhedral Angle: {np.degrees(self.new_anhedral_angle):.1f}°"
+            )
+            plt.legend()
+            plt.grid(True)
+            plt.show()
+
+        return (
+            new_chord_vectors,
+            full_arc_qchord,
+            full_arc_LE[: len(full_arc_LE) // 2],  # Half span for compatibility
+            full_arc_TE[: len(full_arc_TE) // 2],  # Half span for compatibility
+            full_arc_LE,
+            full_arc_TE,
+            full_arc_qchord,
+        )
+
+    def export_data(self):
+        """Export anhedral-modified kite data."""
+        new_yaml_file_path = Path(PROJECT_DIR) / "processed_data" / f"{self.kite_name}"
+        wing_sections = self.get_new_wing_sections()
+
+        # Use original config as base and update wing sections
+        yaml_data = self.old_kite.config.copy()
+        yaml_data["wing_sections"] = wing_sections
+
+        # Save YAML file
+        os.makedirs(new_yaml_file_path, exist_ok=True)
+        yaml_file_path = Path(new_yaml_file_path) / "config_kite.yaml"
+
+        with open(yaml_file_path, "w") as f:
+            yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
+
+        print(f'Generated anhedral-modified YAML file at "{yaml_file_path}"')
+        print(f"Original anhedral: {np.degrees(self.current_anhedral_angle):.2f}°")
+        print(f"New anhedral: {np.degrees(self.new_anhedral_angle):.2f}°")
+        print(f"Change: {np.degrees(self.anhedral_change):.2f}°")
+        print(f"Preserved AR: {self.aspect_ratio:.3f}")
+        print(f"Preserved Area: {self.area:.3f} m²")
+
+        return yaml_file_path, yaml_data
+
+
+def get_current_anhedral_angle(kite_definition):
+    """Helper function to calculate current anhedral angle."""
+    LE_coords, _ = kite_definition.get_arc(halve=True)
+    root_z = LE_coords[0, 2]  # Center (Y=0) Z-coordinate
+    tip_z = LE_coords[-1, 2]  # Wing tip Z-coordinate
+    span_y = abs(LE_coords[-1, 1])  # Wing tip Y-coordinate
+
+    if span_y > 0:
+        anhedral_angle = np.arctan2(root_z - tip_z, span_y)
+        return anhedral_angle
+    else:
+        return 0.0
+
+
 def plot_kite(kite_lst):
     """Plot the kite geometry in 3d."""
     ax = plt.axes(projection="3d")
@@ -1068,17 +1279,124 @@ def plot_kite(kite_lst):
 
 if __name__ == "__main__":
 
-    print("V9.60")
-    kite_name = "strawman55"
+    print("V9.61 - Enhanced with Anhedral Control")
+    kite_name = "TUDELFT_V3_KITE"  # Use available kite data
+
+    # Load and process base kite
     base_kite = KiteDefinition(kite_name)
     base_kite.process(plot=False)
-    print(f"Old span: {base_kite.get_old_span()[0]}")
-    print(f"Old Area: {base_kite.get_old_area()}")
-    print(f"Old AR: {base_kite.old_aspect_ratio()}")
-    LE_base, TE_base = base_kite.get_arc()
+
+    # Display original kite properties
+    original_span = base_kite.get_old_span()[0]
+    original_area = base_kite.get_old_area()
+    original_ar = base_kite.old_aspect_ratio()
+    original_anhedral = get_current_anhedral_angle(base_kite)
+
+    print(f"=== ORIGINAL KITE PROPERTIES ===")
+    print(f"Span: {original_span:.3f} m")
+    print(f"Area: {original_area:.3f} m²")
+    print(f"Aspect Ratio: {original_ar:.3f}")
+    print(f"Anhedral Angle: {np.degrees(original_anhedral):.2f}°")
+
+    # Get Bezier curve parameters
     bez_x, bez_y, points, LE_arc_proj_y, LE_arc_proj_z, phi, delta_best, gamma_best = (
         base_kite.get_bezier_curve()
     )
+
+    # Normalize Bezier parameters for AR scaling
+    _, _, points_norm, LE_y, LE_z, phi_norm, delta_norm, gamma_norm = (
+        base_kite.get_bezier_curve(normalized=True, plot=False)
+    )
+
+    print(f"\n=== BEZIER PARAMETERS ===")
+    print(f"delta: {delta_norm:.6f}")
+    print(f"gamma: {gamma_norm:.6f}")
+    print(f"phi:   {phi_norm:.6f}")
+
+    # =====================================================
+    # ASPECT RATIO SCALING STUDY
+    # =====================================================
+    print(f"\n=== ASPECT RATIO SCALING STUDY ===")
+    print("Preserving: Surface Area, Arc Shape (delta, gamma, phi)")
+    print("Changing: Aspect Ratio, Span, Chord Lengths")
+
+    # Create AR-scaled kite
+    new_ar = 6.5
+    scaled_kite = KiteScaling(
+        base_kite, new_ar=new_ar, arc_parameters=[delta_norm, gamma_norm, phi_norm]
+    )
+
+    # Display AR scaling results
+    new_span = scaled_kite.get_new_span()
+    print(f"AR Scaling: {original_ar:.3f} → {new_ar:.3f}")
+    print(f"Span change: {original_span:.3f} → {new_span:.3f} m")
+    print(f"Area preserved: {original_area:.3f} m²")
+
+    # Export AR-scaled kite
+    scaled_kite.export_data()
+    scaled_kite.vsm_csv_sheets()
+
+    # =====================================================
+    # ANHEDRAL ANGLE SCALING STUDY
+    # =====================================================
+    print(f"\n=== ANHEDRAL ANGLE SCALING STUDY ===")
+    print("Preserving: Aspect Ratio, Surface Area")
+    print("Changing: Anhedral Angle, Arc Curvature")
+
+    # Create anhedral-modified kite
+    new_anhedral_deg = 15.0  # degrees
+    anhedral_kite = AnhedralScaling(base_kite, new_anhedral_deg)
+
+    # Display anhedral scaling results
+    print(
+        f"Anhedral change: {np.degrees(original_anhedral):.2f}° → {new_anhedral_deg:.1f}°"
+    )
+    print(f"AR preserved: {original_ar:.3f}")
+    print(f"Area preserved: {original_area:.3f} m²")
+
+    # Export anhedral-modified kite
+    anhedral_kite.export_data()
+
+    # =====================================================
+    # PARAMETRIC STUDY DEMONSTRATION
+    # =====================================================
+    print(f"\n=== PARAMETRIC STUDY SETUP ===")
+    print("For sensitivity analysis, you can now vary:")
+    print(
+        "1. Aspect Ratio: [4.0, 5.0, 6.0, 7.0, 8.0] while preserving area & arc shape"
+    )
+    print("2. Anhedral Angle: [0°, 5°, 10°, 15°, 20°] while preserving AR & area")
+
+    # Example parametric sweep (commented out to avoid generating many files)
+    """
+    # AR Sweep
+    ar_values = [4.0, 5.0, 6.0, 7.0, 8.0]
+    for ar in ar_values:
+        kite_ar = KiteScaling(base_kite, new_ar=ar, arc_parameters=[delta_norm, gamma_norm, phi_norm])
+        kite_ar.export_data()
+        print(f"Generated AR={ar:.1f} variant")
+    
+    # Anhedral Sweep  
+    anhedral_values = [0, 5, 10, 15, 20]  # degrees
+    for anhedral in anhedral_values:
+        kite_anh = AnhedralScaling(base_kite, anhedral)
+        kite_anh.export_data()
+        print(f"Generated anhedral={anhedral}° variant")
+    """
+
+    # =====================================================
+    # VISUALIZATION
+    # =====================================================
+    print(f"\n=== GENERATING VISUALIZATIONS ===")
+
+    # Plot comparison of all three kites
+    plot_kite([base_kite, scaled_kite, anhedral_kite])
+
+    # Plot arc comparisons
+    LE_base, TE_base = base_kite.get_arc()
+    LE_y_scaled, LE_z_scaled_trans = scaled_kite.scale_arc_to_span()
+
+    # Show original kite with Bezier fit
     base_kite.plot_arc(
         [
             LE_base[:, 1],
@@ -1087,44 +1405,27 @@ if __name__ == "__main__":
             bez_y,
             points[:, 0],
             points[:, 1],
-            LE_base[:, 1],
-            LE_base[:, 2],
         ],
-        ["Old LE", "Bezier Arc", "Control Points", ""],
-        ["k-", "r-", "rx", "kx"],
-        "Base kite LE plot",
+        ["Original LE", "Bezier Fit", "Control Points"],
+        ["k-", "r-", "ro"],
+        "Base Kite LE Arc with Bezier Fit",
         grid=True,
     )
-    _, _, _, LE_full_y, LE_full_z, _, _, _ = base_kite.get_bezier_curve(
-        normalized=False, plot=False
-    )
-    _, _, points, LE_y, LE_z, phi, delta, gamma = base_kite.get_bezier_curve(
-        normalized=True, plot=False
-    )
-    print(f"delta: {delta}")
-    print(f"gamma: {gamma}")
-    print(f"phi:   {phi}")
 
-    scaled_kite = KiteScaling(base_kite, new_ar=6.5, arc_parameters=[delta, gamma, phi])
-    LE_norm_y, LE_norm_z, bez_y, bez_z, points = scaled_kite.get_le_arc_curve()
-    LE_y_scaled, LE_z_scaled_trans = scaled_kite.scale_arc_to_span()
+    # Show AR scaling effect
     scaled_kite.plot_arc(
-        [LE_full_y, LE_full_z, LE_y_scaled, LE_z_scaled_trans],
-        ["Old LE", "Scaled Kite"],
-        ["kx", "rx"],
-        "Scaled LE plot",
+        [LE_arc_proj_y, LE_arc_proj_z, LE_y_scaled, LE_z_scaled_trans],
+        ["Original LE", "AR-Scaled LE"],
+        ["k--", "r-"],
+        f"AR Scaling Effect: {original_ar:.2f} → {new_ar:.2f}",
         grid=True,
     )
-    (
-        new_chord_vectors,
-        new_qchord_points,
-        new_LE_coords,
-        new_TE_coords,
-        full_arc_LE,
-        full_arc_TE,
-        full_arc_qchord,
-    ) = scaled_kite.chord_vectors(plot=False)
-    plot_kite([base_kite, scaled_kite])
 
-    scaled_kite.export_data()
-    scaled_kite.vsm_csv_sheets()
+    # Show anhedral scaling effect
+    anhedral_kite.chord_vectors(plot=True)
+
+    print(f"\n=== ANALYSIS COMPLETE ===")
+    print("Files generated in processed_data/ directory:")
+    print("- AR-scaled kite: strawman55_scaled/")
+    print("- Anhedral-modified kite: strawman55_anhedral/")
+    print("Both variants ready for aerodynamic analysis!")
