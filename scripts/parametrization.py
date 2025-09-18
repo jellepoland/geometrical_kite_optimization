@@ -910,29 +910,59 @@ class KiteScaling():
     
 
 
-def plot_kite(kite_lst):
-    """Plot the kite geometry in 3d."""
-    ax = plt.axes(projection='3d')
-    for kite in kite_lst:
-        _, _, _, _, full_arc_LE, full_arc_TE, full_arc_qchord = kite.chord_vectors()
-        ax.plot3D(full_arc_LE[:,0], full_arc_LE[:,1], full_arc_LE[:,2], 'r-', label='LE Arc')
-        ax.plot3D(full_arc_TE[:,0], full_arc_TE[:,1], full_arc_TE[:,2], 'b-', label='TE Arc')
-        ax.scatter3D(full_arc_qchord[:,0], full_arc_qchord[:,1], full_arc_qchord[:,2], color='m', label='Quarter Chord')
-        for i in range(len(full_arc_LE)):
-            ax.plot3D([full_arc_LE[i,0], full_arc_TE[i,0]], 
-                        [full_arc_LE[i,1], full_arc_TE[i,1]], 
-                        [full_arc_LE[i,2], full_arc_TE[i,2]], 'g--', alpha=0.5)
-    ax.set_xlabel('X-axis')
-    ax.set_ylabel('Y-axis')
-    ax.grid()
-    ax.set_aspect('equal')
-    ax.set_title('Kite Geometry with Chord Vectors and Quarter Chord Points')
-    ax.legend()
+def plot_kite(kite_lst, style_lst=None, use_subplots=False):
+    """Plot the kite geometry in 3D or as 4 subplots from different angles."""
+    if not style_lst:
+        style_lst = ['base'] * len(kite_lst)
+    if not use_subplots:
+        ax = plt.axes(projection='3d')
+        for idx, kite in enumerate(kite_lst):
+            _, _, _, _, full_arc_LE, full_arc_TE, full_arc_qchord = kite.chord_vectors()
+            style = style_lst[idx]
+            for i in range(len(full_arc_LE)):
+                ax.plot3D([full_arc_LE[i,0], full_arc_TE[i,0]], 
+                          [full_arc_LE[i,1], full_arc_TE[i,1]], 
+                          [full_arc_LE[i,2], full_arc_TE[i,2]], 'g--' if style == 'base' else 'g-', alpha=0.5)
+            ax.scatter3D(full_arc_qchord[:,0], full_arc_qchord[:,1], full_arc_qchord[:,2], color='m', marker='x' if style == 'base' else 'o')
+            ax.plot3D(full_arc_LE[:,0], full_arc_LE[:,1], full_arc_LE[:,2], 'r--' if style=='base' else 'r-')
+            ax.plot3D(full_arc_TE[:,0], full_arc_TE[:,1], full_arc_TE[:,2], 'b--' if style=='base' else 'b-')
+        ax.set_xlabel('X-axis')
+        ax.set_ylabel('Y-axis')
+        ax.set_zlabel('Z-axis')
+        ax.grid()
+        ax.set_aspect('equal')
+        ax.set_title('Kite Geometry')
+        ax.view_init(elev=15, azim=200)
+    else:
+        fig = plt.figure(figsize=(14, 10))
+        angles = [(0, 180), (0, -90), (270, 180), (15, 200)]
+        titles = ['Front View', 'Side View', 'Top View', 'Isometric View']
+        for id, (angle, title) in enumerate(zip(angles, titles)):
+            ax = fig.add_subplot(2, 2, id+1, projection='3d')
+            for idx, kite in enumerate(kite_lst):
+                _, _, _, _, full_arc_LE, full_arc_TE, full_arc_qchord = kite.chord_vectors()
+                style = style_lst[idx]
+                for i in range(len(full_arc_LE)):
+                    ax.plot3D([full_arc_LE[i,0], full_arc_TE[i,0]], 
+                              [full_arc_LE[i,1], full_arc_TE[i,1]], 
+                              [full_arc_LE[i,2], full_arc_TE[i,2]], 'g--' if style == 'base' else 'g-', alpha=0.5)
+                ax.scatter3D(full_arc_qchord[:,0], full_arc_qchord[:,1], full_arc_qchord[:,2], color='m', marker='x' if style == 'base' else 'o')
+                ax.plot3D(full_arc_LE[:,0], full_arc_LE[:,1], full_arc_LE[:,2], 'r--' if style=='base' else 'r-')
+                ax.plot3D(full_arc_TE[:,0], full_arc_TE[:,1], full_arc_TE[:,2], 'b--' if style=='base' else 'b-')
+            ax.set_title(title)
+            ax.grid()
+            ax.set_aspect('equal')
+            ax.set_xlabel('X-axis')
+            ax.set_ylabel('Y-axis')
+            ax.set_zlabel('Z-axis')
+            ax.view_init(elev=angle[0], azim=angle[1])
+        plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
     plt.show()
     
 
 if __name__ == "__main__":
     
+    save_data=False
     plot=False
     print("V9.60")
     kite_name = "strawman55"
@@ -955,7 +985,7 @@ if __name__ == "__main__":
     print(f'gamma: {round(gamma, 6)}')
     print(f'phi:   {round(phi, 6)}')
 
-    scaled_kite = KiteScaling(base_kite, new_ar=5.5,  arc_parameters=[delta, gamma, phi])
+    scaled_kite = KiteScaling(base_kite, new_ar=6.5,  arc_parameters=[delta, gamma, phi])
     LE_norm_y, LE_norm_z, bez_y, bez_z, points = scaled_kite.get_le_arc_curve()
     LE_y_scaled, LE_z_scaled_trans = scaled_kite.scale_arc_to_span()
     if plot:
@@ -966,7 +996,10 @@ if __name__ == "__main__":
                              grid=True)
     new_chord_vectors, new_qchord_points, new_LE_coords, new_TE_coords, full_arc_LE, full_arc_TE, full_arc_qchord = scaled_kite.chord_vectors(plot=False)
     if plot:
-        plot_kite([base_kite, scaled_kite])
+        # plot_kite([base_kite], style_lst=['base'])
+        plot_kite([scaled_kite], style_lst=['scaled'], use_subplots=True)
+        # plot_kite([base_kite, scaled_kite], style_lst=['base', 'scaled'])
 
-    output_filename = "test"
-    scaled_kite.vsm_csv_sheets(filename=output_filename)
+    if save_data:
+        output_filename = "test"
+        scaled_kite.vsm_csv_sheets(filename=output_filename)
