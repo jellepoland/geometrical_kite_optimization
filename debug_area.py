@@ -5,7 +5,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from geometrical_kite_optimization.kite_scaling import Kite_scaling
+from scripts.kite_scaling import Kite_scaling
 from geometrical_kite_optimization.main import Kite_shape
 import math as m
 

@@ -7,8 +7,8 @@ import sys
 
 sys.path.append("src")
 
-from geometrical_kite_optimization.kite_definition import KiteDefinition
-from geometrical_kite_optimization.kite_scaling import KiteScaling
+from scripts.kite_definition import KiteDefinition
+from scripts.kite_scaling import KiteScaling
 import numpy as np
 
 
